@@ -6,8 +6,9 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:generate": "node scripts/prisma-root-env.cjs generate",
+    "prisma:migrate": "node scripts/prisma-root-env.cjs migrate dev",
+    "prisma:validate": "node scripts/prisma-root-env.cjs validate"
   },
   "dependencies": {
     "@prisma/client": "^5.7.1",

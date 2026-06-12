@@ -33,12 +33,12 @@ export const AI_CONFIG = {
     },
     openai: {
       base_url: process.env.AI_OPENAI_BASE_URL || 'https://api.openai.com/v1',
-      api_key: process.env.OPENAI_API_KEY || '',
+      api_key: process.env.AI_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '',
       model: process.env.AI_OPENAI_MODEL || 'gpt-4o-mini'
     },
     anthropic: {
       base_url: process.env.AI_ANTHROPIC_BASE_URL || 'https://api.anthropic.com/v1',
-      api_key: process.env.ANTHROPIC_API_KEY || '',
+      api_key: process.env.AI_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '',
       model: process.env.AI_ANTHROPIC_MODEL || 'claude-sonnet-4-20250514'
     },
     aliyun: {
