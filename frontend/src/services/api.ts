@@ -161,6 +161,15 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
+    getChineseConfig: (id: string) =>
+      api.request(`/parents/children/${id}/chinese-config`),
+
+    updateChineseConfig: (id: string, data: any) =>
+      api.request(`/parents/children/${id}/chinese-config`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
     getPracticeSessionDetail: (childId: string, sessionId: string) =>
       api.request(`/parents/children/${childId}/practice-sessions/${sessionId}`),
 
@@ -182,6 +191,9 @@ export const api = {
   children: {
     getTodayPractice: () =>
       api.request('/children/today-practice'),
+
+    getTodayPractices: () =>
+      api.request('/children/today-practices'),
     
     startPractice: (sessionId: string) =>
       api.request(`/children/practice/${sessionId}/start`, {

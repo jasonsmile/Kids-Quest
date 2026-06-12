@@ -75,7 +75,9 @@ export const ChildHistory: React.FC = () => {
       dataIndex: 'completedCount',
       width: 120,
       render: (value: number, record: any) => (
-        <span className="text-base font-bold text-[#725d42]">{value} / {record.targetCount}</span>
+        <span className="text-base font-bold text-[#725d42]">
+          {record.subject === 'chinese_pinyin' ? `语文 ${value} 词` : `${value} / ${record.targetCount}`}
+        </span>
       ),
     },
     {
@@ -90,7 +92,9 @@ export const ChildHistory: React.FC = () => {
       title: '正确率',
       dataIndex: 'accuracy',
       width: 100,
-      render: (value: number) => (
+      render: (value: number, record: any) => record.subject === 'chinese_pinyin' ? (
+        <span className="text-base font-black text-[#794f27]">已完成</span>
+      ) : (
         <div className="flex items-center gap-1.5">
            <div className={`h-2.5 w-2.5 rounded-full ${value >= 90 ? 'bg-[#6fba2c]' : value >= 70 ? 'bg-[#f5c31c]' : 'bg-[#e05a5a]'}`} />
            <span className="text-base font-black text-[#794f27]">{value?.toFixed(1)}%</span>
@@ -124,6 +128,7 @@ export const ChildHistory: React.FC = () => {
     targetCount: session.targetCount,
     totalTime: session.totalTime,
     accuracy: session.accuracy,
+    subject: session.subject,
   }));
 
   if (loading) {

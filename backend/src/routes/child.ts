@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { childAuthMiddleware } from '../middleware/authMiddleware';
 import {
   getTodayPractice,
+  getTodayPractices,
   startPractice,
   submitAnswer,
   completePractice,
@@ -17,6 +18,7 @@ const router = Router();
 router.use(childAuthMiddleware);
 
 router.get('/today-practice', getTodayPractice);
+router.get('/today-practices', getTodayPractices);
 router.post('/practice/:sessionId/start', startPractice);
 router.post('/practice/:sessionId/question/:questionInstanceId/submit', submitAnswer);
 router.post('/practice/:sessionId/complete', completePractice);

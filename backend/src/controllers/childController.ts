@@ -17,6 +17,19 @@ export const getTodayPractice = async (req: Request, res: Response) => {
   }
 };
 
+export const getTodayPractices = async (req: Request, res: Response) => {
+  try {
+    const childId = (req as any).user.childId;
+    const sessions = await childService.getTodayPractices(childId);
+    res.json({ success: true, data: sessions });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: { message: error.message }
+    });
+  }
+};
+
 export const startPractice = async (req: Request, res: Response) => {
   try {
     const childId = (req as any).user.childId;

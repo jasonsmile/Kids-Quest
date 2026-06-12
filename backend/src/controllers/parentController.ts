@@ -245,6 +245,34 @@ export const getPracticeConfig = async (req: Request, res: Response) => {
   }
 };
 
+export const getChineseConfig = async (req: Request, res: Response) => {
+  try {
+    const parentId = (req as any).user.parentId;
+    const { id } = req.params;
+    const config = await parentService.getChineseConfig(id, parentId);
+    res.json({ success: true, data: config });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: { message: error.message }
+    });
+  }
+};
+
+export const updateChineseConfig = async (req: Request, res: Response) => {
+  try {
+    const parentId = (req as any).user.parentId;
+    const { id } = req.params;
+    const config = await parentService.updateChineseConfig(id, parentId, req.body);
+    res.json({ success: true, data: config });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: { message: error.message }
+    });
+  }
+};
+
 export const getPracticeSessionDetail = async (req: Request, res: Response) => {
   try {
     const parentId = (req as any).user.parentId;

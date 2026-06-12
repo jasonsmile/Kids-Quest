@@ -113,6 +113,18 @@ export const Practice: React.FC = () => {
     handleNextQuestion();
   };
 
+  const handleRevealChineseAnswer = async () => {
+    if (!session || !sessionId || feedback) return;
+    const question = session.questionInstances[currentQuestionIndex];
+    const timeSpent = Math.floor((Date.now() - questionStartTime) / 1000);
+    try {
+      await api.children.submitAnswer(sessionId, question.id, question.correctAnswer, timeSpent);
+      setFeedback({ isCorrect: true, correctAnswer: question.correctAnswer });
+    } catch (error) {
+      console.error('Failed to complete Chinese question:', error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f8f8f0]">
@@ -137,6 +149,77 @@ export const Practice: React.FC = () => {
 
   const currentQuestion = session.questionInstances[currentQuestionIndex];
   const progress = ((currentQuestionIndex + 1) / session.questionInstances.length) * 100;
+  const isChinesePinyin = currentQuestion.questionType === 'chinese_pinyin' || session.subject === 'chinese_pinyin';
+
+  if (isChinesePinyin) {
+    const answerChars = Array.from(String(currentQuestion.correctAnswer || ''));
+
+    return (
+      <div
+        className="kmq-responsive-page relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f8f8f0] bg-cover bg-center px-4"
+        style={{
+          backgroundImage: 'url(/practice-bg.png)',
+          fontFamily: 'Nunito, "MarukoGothic", "Noto Sans SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif',
+        }}
+        onClick={() => {
+          if (!feedback) {
+            handleRevealChineseAnswer();
+          } else {
+            handleNextQuestion();
+          }
+        }}
+      >
+        <div className="absolute left-4 top-4 z-20 sm:left-8 sm:top-8">
+          <Button
+            type="default"
+            size="small"
+            onClick={(event) => {
+              event.stopPropagation();
+              navigate('/child/dashboard');
+            }}
+            className="!h-12 !w-12 !rounded-full !bg-white/80 !p-0"
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </Button>
+        </div>
+
+        <div className="relative w-full max-w-5xl">
+          <Card className="relative !rounded-[48px] !border-[8px] !border-[#f0e8d8] !bg-white !p-8 text-center shadow-[0_15px_0_0_#f0e8d8] sm:!p-14">
+            <div className="mb-8 flex items-center justify-center gap-4">
+              <div className="h-5 w-64 max-w-[60vw] overflow-hidden rounded-full bg-[#f0e8d8] p-1">
+                <div className="h-full rounded-full bg-[#19c8b9] transition-all" style={{ width: `${progress}%` }} />
+              </div>
+              <span className="font-black text-[#794f27]">
+                {currentQuestionIndex + 1} / {session.questionInstances.length}
+              </span>
+            </div>
+
+            <p className="mb-8 text-[clamp(2.5rem,7vw,5.5rem)] font-black leading-tight text-[#111]">
+              {currentQuestion.questionText}
+            </p>
+
+            <div className="mb-8 flex flex-wrap justify-center gap-0">
+              {answerChars.map((char: string, index: number) => (
+                <div key={`${char}-${index}`} className="relative h-28 w-28 border-[3px] border-black bg-white sm:h-36 sm:w-36">
+                  <div className="absolute inset-x-0 top-1/2 border-t-2 border-dashed border-gray-400" />
+                  <div className="absolute inset-y-0 left-1/2 border-l-2 border-dashed border-gray-400" />
+                  {feedback && (
+                    <div className="relative z-10 flex h-full w-full items-center justify-center text-[clamp(3rem,8vw,5rem)] font-black text-[#794f27]">
+                      {char}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="mx-auto inline-flex rounded-full bg-[#f0e8d8]/60 px-6 py-3 text-lg font-black text-[#794f27]">
+              {feedback ? '答案已显示，点击进入下一题' : '在纸上写好后，点击屏幕查看答案'}
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

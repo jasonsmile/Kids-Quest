@@ -18,6 +18,7 @@ export const ChildDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [todayPractice, setTodayPractice] = useState<any>(null);
+  const [todayChinesePractice, setTodayChinesePractice] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -28,17 +29,26 @@ export const ChildDashboard: React.FC = () => {
   const loadData = async () => {
     try {
       const [practiceResponse, profileResponse] = await Promise.all([
-        api.children.getTodayPractice(),
+        api.children.getTodayPractices(),
         api.children.getProfile(),
       ]);
       
-      const session = practiceResponse.data;
+      const session = practiceResponse.data?.math;
+      const chineseSession = practiceResponse.data?.chinese;
       if (session && session.id && session.id !== 'done') {
         setTodayPractice(session);
       } else if (session && session.status === 'daily_limit_reached') {
         setTodayPractice(session);
       } else {
         setTodayPractice(null);
+      }
+
+      if (chineseSession && chineseSession.id && chineseSession.id !== 'done_chinese') {
+        setTodayChinesePractice(chineseSession);
+      } else if (chineseSession && chineseSession.status === 'daily_limit_reached') {
+        setTodayChinesePractice(chineseSession);
+      } else {
+        setTodayChinesePractice(null);
       }
       
       setProfile(profileResponse.data);
@@ -80,6 +90,20 @@ export const ChildDashboard: React.FC = () => {
       }
     } else {
       navigate(`/practice/${todayPractice.id}`);
+    }
+  };
+
+  const handleStartChinesePractice = async () => {
+    if (!todayChinesePractice?.id || todayChinesePractice.status === 'daily_limit_reached') return;
+    if (todayChinesePractice.status === 'pending') {
+      try {
+        await api.children.startPractice(todayChinesePractice.id);
+        navigate(`/practice/${todayChinesePractice.id}`);
+      } catch (error) {
+        console.error('Failed to start Chinese practice:', error);
+      }
+    } else {
+      navigate(`/practice/${todayChinesePractice.id}`);
     }
   };
 
@@ -338,6 +362,41 @@ export const ChildDashboard: React.FC = () => {
               })()}
             </div>
           </Card>
+
+          {todayChinesePractice && (
+            <Card type="title" color="default" className="kmq-compact-panel !p-1 !border-[6px]" style={{ backgroundColor: '#fff7f7', borderColor: '#f3b6c2' }}>
+              <div className="rounded-[28px] border-2 border-dashed border-[#f3b6c2] bg-white/70 p-6 sm:p-8">
+                <div className="mb-6 flex flex-col items-center justify-between gap-4 border-b border-[#794f27]/10 pb-5 sm:flex-row sm:text-left">
+                  <div>
+                    <h3 className="kmq-compact-title text-2xl font-black text-[#654322]">语文练习</h3>
+                    <p className="mt-1 font-bold text-[#9f927d]">看拼音，在纸上写汉字，写好后点屏幕看答案。</p>
+                  </div>
+                  <Card color="app-pink" className="kmq-compact-panel !rounded-2xl !px-4 !py-2 !font-black !shadow-none flex items-center">
+                    <Icon name="critterpedia" size={20} className="mr-2" />
+                    <span>{todayChinesePractice.status === 'daily_limit_reached' ? '今日完成' : `${todayChinesePractice.targetCount || 0} 词`}</span>
+                  </Card>
+                </div>
+
+                {todayChinesePractice.status === 'daily_limit_reached' ? (
+                  <div className="flex flex-col items-center justify-center rounded-[30px] bg-[#fff0f4] py-8 text-center animate-animal-fade-up">
+                    <Icon name="trophy" size={56} className="mb-3 text-[#f5c31c]" />
+                    <h4 className="text-xl font-black text-[#d95c7a]">今天的语文练习完成啦</h4>
+                  </div>
+                ) : (
+                  <Button
+                    type="primary"
+                    size="large"
+                    onClick={handleStartChinesePractice}
+                    className="kmq-compact-button w-full !h-20 !text-2xl !bg-[#d95c7a] !text-white !border-[#d95c7a] !shadow-[0_8px_0_0_#a83d58] flex items-center justify-center"
+                  >
+                    <Icon name="play" size={32} className="mr-4 fill-current" />
+                    <span>{todayChinesePractice.status === 'in_progress' ? '继续语文练习' : '开始语文练习'}</span>
+                    <ChevronRight className="h-8 w-8 ml-4 transition-transform group-hover:translate-x-1" />
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )}
 
           <div className="kmq-compact-grid grid grid-cols-1 gap-6 sm:grid-cols-3">
             {[

@@ -139,6 +139,20 @@ async function loadBadgeContext(childId: string, syncMissingBadges = false): Pro
 }
 
 export class ChildService {
+  async getTodayPractices(childId: string) {
+    const [math, chinese] = await Promise.all([
+      this.getTodayPractice(childId).catch((error: any) => {
+        if (error?.message === 'No active paper config found') {
+          return null;
+        }
+        throw error;
+      }),
+      this.getTodayChinesePractice(childId)
+    ]);
+
+    return { math, chinese };
+  }
+
   async getTodayPractice(childId: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -169,6 +183,7 @@ export class ChildService {
     const todaySessions = await prisma.practiceSession.findMany({
       where: {
         childId,
+        subject: 'math',
         date: {
           gte: today
         }
@@ -185,9 +200,11 @@ export class ChildService {
     const pendingSession = todaySessions.find((s: any) => s.status !== 'completed');
     if (pendingSession) {
       // 检查 session 的 paperConfig 是否仍然 active
-      const sessionPaperConfig = await prisma.paperConfig.findUnique({
-        where: { id: pendingSession.paperConfigId }
-      });
+      const sessionPaperConfig = pendingSession.paperConfigId
+        ? await prisma.paperConfig.findUnique({
+            where: { id: pendingSession.paperConfigId }
+          })
+        : null;
       
       if (!sessionPaperConfig || !sessionPaperConfig.isActive) {
         // paperConfig 已被停用，不返回这个 session，继续创建新的
@@ -248,8 +265,85 @@ export class ChildService {
       data: {
         childId,
         paperConfigId: paperConfig.id,
+        subject: 'math',
         configVersion: practiceConfig.version,
         targetCount: targetCount,
+        status: 'pending'
+      }
+    });
+
+    return await prisma.practiceSession.findUnique({
+      where: { id: createdSession.id },
+      include: { questionInstances: true }
+    });
+  }
+
+  async getTodayChinesePractice(childId: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const config = await prisma.chineseConfig.findUnique({ where: { childId } });
+    if (!config || !config.isEnabled) {
+      return null;
+    }
+
+    let items: Array<{ pinyin: string; answer: string }> = [];
+    try {
+      items = JSON.parse(config.itemsJson || '[]');
+    } catch (error) {
+      console.error('Failed to parse Chinese config items:', error);
+    }
+
+    if (items.length === 0) {
+      return null;
+    }
+
+    const todaySessions = await prisma.practiceSession.findMany({
+      where: {
+        childId,
+        subject: 'chinese_pinyin',
+        date: { gte: today }
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { questionInstances: true }
+    });
+
+    const pendingSession = todaySessions.find((s: any) => s.status !== 'completed');
+    if (pendingSession) {
+      return pendingSession;
+    }
+
+    const completedCount = todaySessions.filter((s: any) => s.status === 'completed').length;
+    if (completedCount >= 1) {
+      return {
+        id: 'done_chinese',
+        childId,
+        subject: 'chinese_pinyin',
+        status: 'daily_limit_reached',
+        completedCount,
+        dailyFrequency: 1,
+        date: new Date(),
+        paperConfigId: null,
+        configVersion: 1,
+        targetCount: 0,
+        correctCount: 0,
+        accuracy: null,
+        totalTime: 0,
+        pointsEarned: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        questionInstances: []
+      } as any;
+    }
+
+    const targetCount = Math.min(config.dailyCount, items.length);
+    const createdSession = await prisma.practiceSession.create({
+      data: {
+        childId,
+        paperConfigId: null,
+        subject: 'chinese_pinyin',
+        configVersion: 1,
+        targetCount,
         status: 'pending'
       }
     });
@@ -279,14 +373,64 @@ export class ChildService {
       throw new AppError('Session not found', 404);
     }
 
-    if (!session.paperConfig) {
+    if (session.subject !== 'chinese_pinyin' && !session.paperConfig) {
       console.error('Paper config not found for session:', sessionId);
       throw new AppError('Paper config not found for this session', 404);
     }
 
-    console.log('Session found with paperConfig:', session.paperConfig.id);
+    if (session.subject === 'chinese_pinyin') {
+      if (session.questionInstances && session.questionInstances.length > 0) {
+        console.log('Chinese session already has questions:', session.questionInstances.length);
+        return session;
+      }
 
-    const sessionPaperConfig = session.paperConfig as typeof session.paperConfig & {
+      const config = await prisma.chineseConfig.findUnique({ where: { childId } });
+      if (!config || !config.isEnabled) {
+        throw new AppError('No active Chinese config found', 400);
+      }
+
+      const items = JSON.parse(config.itemsJson || '[]') as Array<{ pinyin: string; answer: string }>;
+      if (items.length === 0) {
+        throw new AppError('Chinese config has no items', 400);
+      }
+
+      const selectedItems = [...items]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, Math.min(session.targetCount, items.length));
+
+      for (let i = 0; i < selectedItems.length; i++) {
+        await prisma.questionInstance.create({
+          data: {
+            practiceSessionId: sessionId,
+            questionText: selectedItems[i].pinyin,
+            correctAnswer: selectedItems[i].answer,
+            questionType: 'chinese_pinyin',
+            orderIndex: i
+          }
+        });
+      }
+
+      await prisma.practiceSession.update({
+        where: { id: sessionId },
+        data: {
+          status: 'in_progress',
+          targetCount: selectedItems.length
+        }
+      });
+
+      return await prisma.practiceSession.findUnique({
+        where: { id: sessionId },
+        include: {
+          questionInstances: {
+            orderBy: { orderIndex: 'asc' }
+          }
+        }
+      });
+    }
+
+    console.log('Session found with paperConfig:', session.paperConfig?.id);
+
+    const sessionPaperConfig = session.paperConfig as NonNullable<typeof session.paperConfig> & {
       numberMode?: 'integer' | 'decimal';
       decimalPlaces?: number | null;
     };
@@ -297,16 +441,16 @@ export class ChildService {
     }
 
     console.log('Generating questions for session...');
-    console.log('paperConfig.paperListData exists:', !!session.paperConfig.paperListData);
+    console.log('paperConfig.paperListData exists:', !!sessionPaperConfig.paperListData);
 
     try {
       let questions: GeneratedQuestion[] = [];
 
       // 检查是否保存了 paperListData（用户手动添加的题目配置）
-      if (session.paperConfig.paperListData) {
+      if (sessionPaperConfig.paperListData) {
         console.log('Using saved paperListData');
         try {
-          const paperList = JSON.parse(session.paperConfig.paperListData);
+          const paperList = JSON.parse(sessionPaperConfig.paperListData);
           console.log('Parsed paperList length:', paperList.length);
 
           // 遍历 paperList 中的每一份配置，生成题目
@@ -349,11 +493,11 @@ export class ChildService {
                 resultMaxValue: paperConfig.resultMaxValue,
                 numberOfFormulas: paperConfig.numberOfFormulas,
                 whereIsResult: paperConfig.whereIsResult,
-                enableBrackets: session.paperConfig.enableBrackets,
-                carry: session.paperConfig.carry,
-                abdication: session.paperConfig.abdication,
-                remainder: session.paperConfig.remainder,
-                solution: session.paperConfig.solution,
+                enableBrackets: sessionPaperConfig.enableBrackets,
+                carry: sessionPaperConfig.carry,
+                abdication: sessionPaperConfig.abdication,
+                remainder: sessionPaperConfig.remainder,
+                solution: sessionPaperConfig.solution,
                 numberMode: paperNumberMode,
                 decimalPlaces: paperDecimalPlaces
               };
@@ -380,9 +524,9 @@ export class ChildService {
         console.log('Using config parameters to generate questions');
         let formulaList;
         try {
-          formulaList = JSON.parse(session.paperConfig.formulaList);
+          formulaList = JSON.parse(sessionPaperConfig.formulaList);
         } catch (e) {
-          console.error('Failed to parse formulaList:', session.paperConfig.formulaList);
+          console.error('Failed to parse formulaList:', sessionPaperConfig.formulaList);
           throw new AppError('Invalid formulaList configuration', 400);
         }
 
@@ -391,17 +535,17 @@ export class ChildService {
         const numberMode = sessionPaperConfig.numberMode === 'decimal' ? 'decimal' : 'integer';
 
         const config: PaperConfig = {
-          step: session.paperConfig.step,
+          step: sessionPaperConfig.step,
           formulaList: formulaList,
-          resultMinValue: session.paperConfig.resultMinValue,
-          resultMaxValue: session.paperConfig.resultMaxValue,
-          numberOfFormulas: session.paperConfig.numberOfFormulas,
-          whereIsResult: session.paperConfig.whereIsResult,
-          enableBrackets: session.paperConfig.enableBrackets,
-          carry: session.paperConfig.carry,
-          abdication: session.paperConfig.abdication,
-          remainder: session.paperConfig.remainder,
-          solution: session.paperConfig.solution,
+          resultMinValue: sessionPaperConfig.resultMinValue,
+          resultMaxValue: sessionPaperConfig.resultMaxValue,
+          numberOfFormulas: sessionPaperConfig.numberOfFormulas,
+          whereIsResult: sessionPaperConfig.whereIsResult,
+          enableBrackets: sessionPaperConfig.enableBrackets,
+          carry: sessionPaperConfig.carry,
+          abdication: sessionPaperConfig.abdication,
+          remainder: sessionPaperConfig.remainder,
+          solution: sessionPaperConfig.solution,
           numberMode,
           decimalPlaces: sessionPaperConfig.decimalPlaces
         };
@@ -438,7 +582,7 @@ export class ChildService {
       await prisma.paperRecord.create({
         data: {
           childId,
-          configSnapshot: JSON.stringify(session.paperConfig), // 保存完整的 paperConfig，包含显示所需的字段
+          configSnapshot: JSON.stringify(sessionPaperConfig), // 保存完整的 paperConfig，包含显示所需的字段
           questions: JSON.stringify(questions.map(q => q.question)),
           status: 'practiced'
         }
@@ -499,11 +643,14 @@ export class ChildService {
       ? question.correctAnswer.split('.')[1]?.length ?? null
       : null;
 
-    const isCorrect = compareAnswers(
-      userAnswer,
-      question.correctAnswer,
-      inferredDecimalPlaces ?? sessionPaperConfig?.decimalPlaces
-    );
+    const isChinesePinyin = session.subject === 'chinese_pinyin' || question.questionType === 'chinese_pinyin';
+    const isCorrect = isChinesePinyin
+      ? true
+      : compareAnswers(
+          userAnswer,
+          question.correctAnswer,
+          inferredDecimalPlaces ?? sessionPaperConfig?.decimalPlaces
+        );
 
     await prisma.questionAttempt.create({
       data: {
@@ -566,7 +713,12 @@ export class ChildService {
       }
     }
 
-    const accuracy = totalQuestions > 0 ? (correctCount / totalQuestions) * 100 : 0;
+    const isChinesePinyin = session.subject === 'chinese_pinyin';
+    if (isChinesePinyin) {
+      correctCount = totalQuestions;
+    }
+
+    const accuracy = isChinesePinyin ? null : (totalQuestions > 0 ? (correctCount / totalQuestions) * 100 : 0);
 
     const basePoints = 10;
     const perfectBonus = accuracy === 100 ? 5 : 0;

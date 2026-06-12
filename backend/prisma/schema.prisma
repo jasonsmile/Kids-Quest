@@ -35,9 +35,24 @@ model Child {
   paperRecords     PaperRecord[]
   practiceConfigs  PracticeConfig[]
   practiceSessions PracticeSession[]
+  chineseConfigs   ChineseConfig[]
   rewardRecords    RewardRecord[]
 
   @@map("children")
+}
+
+model ChineseConfig {
+  id         String   @id @default(uuid())
+  childId    String   @map("child_id")
+  isEnabled  Boolean  @default(false) @map("is_enabled")
+  dailyCount Int      @default(10) @map("daily_count")
+  itemsJson  String   @default("[]") @map("items_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  child      Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([childId])
+  @@map("chinese_configs")
 }
 
 model PracticeConfig {
@@ -92,7 +107,8 @@ model PaperConfig {
 model PracticeSession {
   id                String             @id @default(uuid())
   childId           String             @map("child_id")
-  paperConfigId     String             @map("paper_config_id")
+  paperConfigId     String?            @map("paper_config_id")
+  subject           String             @default("math")
   date              DateTime           @default(now())
   configVersion     Int                @map("config_version")
   targetCount       Int                @map("target_count")
@@ -105,7 +121,7 @@ model PracticeSession {
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
   completedAt       DateTime?          @map("completed_at")
-  paperConfig       PaperConfig        @relation(fields: [paperConfigId], references: [id])
+  paperConfig       PaperConfig?       @relation(fields: [paperConfigId], references: [id])
   child             Child              @relation(fields: [childId], references: [id], onDelete: Cascade)
   questionInstances QuestionInstance[]
 

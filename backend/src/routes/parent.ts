@@ -18,6 +18,8 @@ import {
   deletePaperRecord,
   updatePracticeConfig,
   getPracticeConfig,
+  getChineseConfig,
+  updateChineseConfig,
   getPracticeSessionDetail,
   getAIChatHistory,
   sendAIChatMessage,
@@ -46,6 +48,8 @@ router.get('/children/:id/papers/:paperId', getPaperRecordById);
 router.delete('/children/:id/papers/:paperId', deletePaperRecord);
 router.get('/children/:id/practice-config', getPracticeConfig);
 router.put('/children/:id/practice-config', updatePracticeConfig);
+router.get('/children/:id/chinese-config', getChineseConfig);
+router.put('/children/:id/chinese-config', updateChineseConfig);
 
 // AI Chat Routes
 router.get('/ai/chat/:childId/history', getAIChatHistory);

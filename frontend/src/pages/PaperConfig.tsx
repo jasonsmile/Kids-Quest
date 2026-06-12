@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../services/api';
 
 interface FormulaItem {
@@ -59,9 +59,104 @@ interface PaperConfig {
   isActive: boolean;
 }
 
+type ChineseItem = {
+  pinyin: string;
+  answer: string;
+};
+
+const parseChineseText = (text: string) => {
+  const lines = text.split(/\r?\n/);
+  const items: ChineseItem[] = [];
+  const errors: string[] = [];
+  const seen = new Set<string>();
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    const separatorIndex = trimmed.indexOf('=');
+    if (separatorIndex === -1) {
+      errors.push(`第 ${index + 1} 行缺少 =`);
+      return;
+    }
+
+    const pinyin = trimmed.slice(0, separatorIndex).trim();
+    const answer = trimmed.slice(separatorIndex + 1).trim();
+    if (!pinyin || !answer) {
+      errors.push(`第 ${index + 1} 行需要同时填写拼音和汉字`);
+      return;
+    }
+
+    const key = `${pinyin.toLowerCase()}=${answer}`;
+    if (seen.has(key)) {
+      errors.push(`第 ${index + 1} 行重复：${trimmed}`);
+      return;
+    }
+
+    seen.add(key);
+    items.push({ pinyin, answer });
+  });
+
+  return { items, errors };
+};
+
+const formatChineseText = (items: ChineseItem[]) =>
+  items.map((item) => `${item.pinyin}=${item.answer}`).join('\n');
+
+const PINYIN_INITIALS = ['b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h', 'j', 'q', 'x', 'zh', 'ch', 'sh', 'r', 'z', 'c', 's', 'y', 'w'];
+const PINYIN_FINALS = [
+  'a', 'o', 'e', 'i', 'u', 'ü', 'ai', 'ei', 'ui', 'ao', 'ou', 'iu', 'ie', 'üe', 'er',
+  'an', 'en', 'in', 'un', 'ün', 'ang', 'eng', 'ing', 'ong', 'ia', 'iao', 'ian', 'iang',
+  'iong', 'ua', 'uo', 'uai', 'uan', 'uang', 'ueng'
+];
+const PINYIN_TONES = [
+  { value: 1, label: '一声' },
+  { value: 2, label: '二声' },
+  { value: 3, label: '三声' },
+  { value: 4, label: '四声' },
+  { value: 0, label: '轻声' },
+];
+const TONE_MARKS: Record<string, string[]> = {
+  a: ['ā', 'á', 'ǎ', 'à'],
+  o: ['ō', 'ó', 'ǒ', 'ò'],
+  e: ['ē', 'é', 'ě', 'è'],
+  i: ['ī', 'í', 'ǐ', 'ì'],
+  u: ['ū', 'ú', 'ǔ', 'ù'],
+  ü: ['ǖ', 'ǘ', 'ǚ', 'ǜ'],
+};
+const PINYIN_CANDIDATES: Record<string, string[]> = {
+  dong: ['东', '冬', '懂', '动', '洞'],
+  tian: ['天', '田', '甜', '填'],
+  hu: ['胡', '湖', '虎', '户', '呼'],
+  zi: ['子', '字', '自', '紫'],
+  qing: ['青', '晴', '清', '情', '请'],
+  ming: ['明', '名', '鸣', '命'],
+  xia: ['夏', '下', '霞', '吓'],
+  he: ['禾', '河', '和', '合'],
+  miao: ['苗', '秒', '妙', '庙'],
+  wen: ['文', '问', '温', '闻'],
+};
+
+const normalizePinyinKey = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ü/g, 'v')
+    .replace(/ǖ|ǘ|ǚ|ǜ/g, 'v')
+    .toLowerCase();
+
+const applyTone = (syllable: string, tone: number) => {
+  if (!tone) return syllable;
+  const target = ['a', 'o', 'e'].find((vowel) => syllable.includes(vowel))
+    || (syllable.includes('iu') ? 'u' : syllable.includes('ui') ? 'i' : ['i', 'u', 'ü'].find((vowel) => syllable.includes(vowel)));
+  if (!target) return syllable;
+  return syllable.replace(target, TONE_MARKS[target][tone - 1]);
+};
+
 export const PaperConfig: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [formData, setFormData] = useState<FormData>({
     step: '1',
     numberOfFormulas: 30,
@@ -92,6 +187,15 @@ export const PaperConfig: React.FC = () => {
   const [paperList, setPaperList] = useState<any[]>([]);
   const [optionsDrawerVisible, setOptionsDrawerVisible] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'math' | 'chinese'>('math');
+  const [chineseEnabled, setChineseEnabled] = useState(false);
+  const [chineseDailyCount, setChineseDailyCount] = useState(10);
+  const [chineseText, setChineseText] = useState('');
+  const [currentPinyinInput, setCurrentPinyinInput] = useState('');
+  const [pinyinResult, setPinyinResult] = useState<string[]>([]);
+  const [currentTone, setCurrentTone] = useState(1);
+  const [currentAnswer, setCurrentAnswer] = useState('');
+  const [savingChinese, setSavingChinese] = useState(false);
   const [dailyFrequency, setDailyFrequency] = useState(1); // 用于显示和对比
 
   const operatorOptions = [
@@ -121,8 +225,14 @@ export const PaperConfig: React.FC = () => {
   useEffect(() => {
     if (id) {
       loadConfigs(id);
+      loadChineseConfig(id);
     }
   }, [id]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    setActiveTab(params.get('tab') === 'chinese' ? 'chinese' : 'math');
+  }, [location.search]);
 
   const loadConfigs = async (childId: string, keepActiveId?: string) => {
     try {
@@ -156,6 +266,87 @@ export const PaperConfig: React.FC = () => {
     } catch (error) {
       console.error('Failed to load configs:', error);
     }
+  };
+
+  const loadChineseConfig = async (childId: string) => {
+    try {
+      const response = await api.parents.getChineseConfig(childId);
+      const config = response.data;
+      setChineseEnabled(Boolean(config?.isEnabled));
+      setChineseDailyCount(config?.dailyCount || 10);
+      setChineseText(formatChineseText(config?.items || []));
+    } catch (error) {
+      console.error('Failed to load Chinese config:', error);
+    }
+  };
+
+  const saveChineseConfig = async () => {
+    if (!id) return;
+    const parsed = parseChineseText(chineseText);
+    if (parsed.errors.length > 0) {
+      alert(parsed.errors.join('\n'));
+      return;
+    }
+    if (chineseEnabled && parsed.items.length === 0) {
+      alert('启用语文练习前，请至少添加 1 条词语');
+      return;
+    }
+
+    try {
+      setSavingChinese(true);
+      await api.parents.updateChineseConfig(id, {
+        items: parsed.items,
+      });
+      alert('语文词表配置已保存');
+    } catch (error: any) {
+      alert(`保存失败：${error.message}`);
+    } finally {
+      setSavingChinese(false);
+    }
+  };
+
+  const currentRawPinyin = currentPinyinInput;
+  const currentPinyin = applyTone(currentRawPinyin, currentTone);
+  const confirmedPinyin = pinyinResult.join(' ');
+  const lookupPinyin = pinyinResult[pinyinResult.length - 1] || currentPinyin;
+  const currentCandidates = PINYIN_CANDIDATES[normalizePinyinKey(lookupPinyin)] || [];
+
+  const appendPinyinInput = (value: string) => {
+    setCurrentPinyinInput((current) => `${current}${value}`);
+  };
+
+  const deletePinyinInput = () => {
+    setCurrentPinyinInput((current) => Array.from(current).slice(0, -1).join(''));
+  };
+
+  const confirmCurrentPinyin = () => {
+    if (!currentPinyin) return;
+    setPinyinResult((current) => [...current, currentPinyin]);
+    setCurrentPinyinInput('');
+  };
+
+  const deletePinyinResult = () => {
+    setPinyinResult([]);
+  };
+
+  const addChineseItem = () => {
+    const answer = currentAnswer.trim();
+    const pinyin = confirmedPinyin || currentPinyin;
+    if (!pinyin || !answer) {
+      alert('请先选择拼音并输入汉字');
+      return;
+    }
+
+    const nextItems = [...parseChineseText(chineseText).items, { pinyin, answer }];
+    setChineseText(formatChineseText(nextItems));
+    setCurrentPinyinInput('');
+    setPinyinResult([]);
+    setCurrentAnswer('');
+  };
+
+  const removeChineseItem = (index: number) => {
+    const nextItems = parseChineseText(chineseText).items.filter((_, itemIndex) => itemIndex !== index);
+    setChineseText(formatChineseText(nextItems));
   };
 
   const resetToDefault = async () => {
@@ -468,6 +659,8 @@ export const PaperConfig: React.FC = () => {
     }
   };
 
+  const parsedChinese = parseChineseText(chineseText);
+
   return (
     <div className="min-h-screen bg-gray-100">
       <nav className="bg-white shadow-md">
@@ -479,6 +672,25 @@ export const PaperConfig: React.FC = () => {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="mb-6 flex rounded-lg bg-white p-1 shadow">
+          <button
+            type="button"
+            onClick={() => setActiveTab('math')}
+            className={`flex-1 rounded-md px-4 py-3 font-bold transition ${activeTab === 'math' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+          >
+            数学
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('chinese')}
+            className={`flex-1 rounded-md px-4 py-3 font-bold transition ${activeTab === 'chinese' ? 'bg-rose-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+          >
+            语文
+          </button>
+        </div>
+
+        {activeTab === 'math' ? (
+        <>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* 左侧：参数设置 */}
           <div className="lg:col-span-2">
@@ -970,6 +1182,272 @@ export const PaperConfig: React.FC = () => {
                 </div>
               </div>
 
+            </div>
+          </div>
+        )}
+        </>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2">
+              <div className="bg-white p-6 rounded-lg shadow [&>div:nth-of-type(2)]:hidden [&>div:nth-of-type(3)]:hidden">
+                <div className="mb-6 flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">语文词表配置</h2>
+                    <p className="mt-1 text-sm text-gray-500">每行一个词语，格式为“拼音=汉字”。孩子端会显示拼音和田字格。</p>
+                  </div>
+                  <span className="rounded-full bg-rose-50 px-3 py-1 text-sm font-bold text-rose-600">看拼音写汉字</span>
+                </div>
+
+                <div className="mb-6">
+                  <label className="mb-2 block text-gray-700">每日词语数量</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={chineseDailyCount}
+                    onChange={(event) => setChineseDailyCount(Number(event.target.value))}
+                    className="w-full rounded border px-3 py-2"
+                  />
+                </div>
+
+                <div className="mb-6">
+                  <label className="mb-2 block text-gray-700">词表</label>
+                  <textarea
+                    value={chineseText}
+                    onChange={(event) => setChineseText(event.target.value)}
+                    rows={14}
+                    placeholder={'dōng tiān=冬天\nhú zi=胡子\nqíng tiān=晴天\nmíng tiān=明天'}
+                    className="w-full rounded border px-3 py-2 font-mono text-sm"
+                  />
+                  <p className="mt-1 text-sm text-gray-500">支持带声调或不带声调拼音。空行会自动忽略。</p>
+                </div>
+
+                <div className="mb-6 rounded-xl border bg-rose-50/40 p-5">
+                  <div className="mb-4 flex items-center justify-between gap-4">
+                    <h3 className="text-lg font-bold text-gray-900">拼音汉字录入</h3>
+                    <button
+                      type="button"
+                      onClick={addChineseItem}
+                      className="rounded bg-rose-500 px-6 py-2 font-bold text-white hover:bg-rose-600"
+                    >
+                      确认添加
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.45fr_1fr]">
+                    <div className="rounded-lg border bg-white p-4">
+                      <h4 className="mb-4 text-center text-base font-bold text-gray-800">拼音</h4>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-[1fr_auto]">
+                          <div
+                            className="flex h-14 min-w-0 items-center overflow-x-auto whitespace-nowrap rounded-lg border border-gray-200 bg-gray-50 px-4 text-2xl font-black text-gray-700 shadow-inner"
+                            style={{ fontFamily: '"KaiTi", "STKaiti", "Noto Sans SC", cursive' }}
+                          >
+                            {confirmedPinyin || <span className="text-base text-gray-300">确认后的拼音会显示在这里</span>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={deletePinyinResult}
+                            disabled={pinyinResult.length === 0}
+                            className="rounded border bg-white px-4 py-2 font-bold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300"
+                          >
+                            删除
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-[1fr_auto_auto]">
+                          <div
+                            className="flex h-16 items-center justify-center rounded-lg border-2 border-rose-200 bg-white px-4 text-4xl font-black text-rose-600 ring-4 ring-rose-50"
+                            style={{ fontFamily: '"KaiTi", "STKaiti", "Noto Sans SC", cursive' }}
+                          >
+                            {currentPinyin || <span className="text-lg text-gray-300">点击拼音按钮</span>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={confirmCurrentPinyin}
+                            disabled={!currentPinyin}
+                            className="rounded bg-rose-500 px-4 py-2 font-bold text-white hover:bg-rose-600 disabled:cursor-not-allowed disabled:bg-gray-300"
+                          >
+                            确认
+                          </button>
+                          <button
+                            type="button"
+                            onClick={deletePinyinInput}
+                            disabled={!currentPinyinInput}
+                            className="rounded border bg-white px-4 py-2 font-bold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border bg-white p-4">
+                      <label className="mb-4 block text-center text-base font-bold text-gray-800">汉字</label>
+                      <input
+                        type="text"
+                        value={currentAnswer}
+                        onChange={(event) => setCurrentAnswer(event.target.value)}
+                        placeholder="输入汉字"
+                        className="h-28 w-full rounded border px-4 text-center text-5xl font-bold"
+                      />
+                      <div className="mt-3 flex min-h-10 flex-wrap justify-center gap-2">
+                        {currentCandidates.map((candidate) => (
+                          <button
+                            key={candidate}
+                            type="button"
+                            onClick={() => setCurrentAnswer((value) => `${value}${candidate}`)}
+                            className="rounded border bg-white px-3 py-1.5 text-lg font-bold text-gray-800 hover:border-rose-400 hover:bg-rose-50"
+                          >
+                            {candidate}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mb-6 space-y-5 [&>button]:hidden [&>div:nth-of-type(4)]:hidden">
+                  <div>
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <label className="font-bold text-gray-700">声母</label>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {PINYIN_INITIALS.map((initial) => (
+                        <button
+                          key={initial}
+                          type="button"
+                          onClick={() => appendPinyinInput(initial)}
+                          className="rounded border bg-white px-3 py-1.5 text-sm font-bold text-gray-700 hover:bg-gray-50"
+                        >
+                          {initial}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block font-bold text-gray-700">韵母</label>
+                    <div className="flex flex-wrap gap-2">
+                      {PINYIN_FINALS.map((final) => (
+                        <button
+                          key={final}
+                          type="button"
+                          onClick={() => appendPinyinInput(final)}
+                          className="rounded border bg-white px-3 py-1.5 text-sm font-bold text-gray-700 hover:bg-gray-50"
+                        >
+                          {final}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block font-bold text-gray-700">音调</label>
+                    <div className="flex flex-wrap gap-2">
+                      {PINYIN_TONES.map((tone) => (
+                        <button
+                          key={tone.value}
+                          type="button"
+                          onClick={() => setCurrentTone(tone.value)}
+                          className="rounded border bg-white px-3 py-1.5 text-sm font-bold text-gray-700 hover:bg-gray-50"
+                        >
+                          {tone.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block font-bold text-gray-700">汉字</label>
+                    <input
+                      type="text"
+                      value={currentAnswer}
+                      onChange={(event) => setCurrentAnswer(event.target.value)}
+                      placeholder="输入汉字，或从下方候选中选择"
+                      className="w-full rounded border px-3 py-2"
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {currentCandidates.length > 0 ? currentCandidates.map((candidate) => (
+                        <button
+                          key={candidate}
+                          type="button"
+                          onClick={() => setCurrentAnswer((value) => `${value}${candidate}`)}
+                          className="rounded border bg-gray-50 px-3 py-1.5 text-lg font-bold text-gray-800 hover:border-rose-400 hover:bg-rose-50"
+                        >
+                          {candidate}
+                        </button>
+                      )) : (
+                        <span className="text-sm text-gray-500">暂无候选，可直接打字输入。</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={addChineseItem}
+                    className="rounded bg-rose-500 px-6 py-2 font-bold text-white hover:bg-rose-600"
+                  >
+                    确认添加到词表
+                  </button>
+                </div>
+
+                {parsedChinese.errors.length > 0 && (
+                  <div className="mb-6 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+                    {parsedChinese.errors.map((error) => (
+                      <p key={error}>{error}</p>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={saveChineseConfig}
+                  disabled={savingChinese}
+                  className="hidden rounded bg-rose-500 px-6 py-2 font-bold text-white hover:bg-rose-600 disabled:bg-gray-400"
+                >
+                  {savingChinese ? '保存中...' : '保存语文配置'}
+                </button>
+              </div>
+            </div>
+
+            <div className="lg:col-span-1">
+              <div className="bg-white p-6 rounded-lg shadow">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-xl font-bold">词表预览</h2>
+                  <span className="text-sm text-gray-500">{parsedChinese.items.length} 条</span>
+                </div>
+
+                {parsedChinese.items.length === 0 ? (
+                  <p className="py-6 text-center text-gray-500">还没有语文词语</p>
+                ) : (
+                  <div className="max-h-[620px] space-y-3 overflow-y-auto">
+                    {parsedChinese.items.map((item, index) => (
+                      <div key={`${item.pinyin}-${item.answer}-${index}`} className="rounded border bg-gray-50 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm text-gray-500">{item.pinyin}</p>
+                            <p className="text-xl font-bold text-gray-900">{item.answer}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeChineseItem(index)}
+                            className="rounded bg-white px-2 py-1 text-sm font-bold text-red-500 hover:bg-red-50"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={saveChineseConfig}
+                  disabled={savingChinese}
+                  className="mt-6 w-full rounded bg-rose-500 px-6 py-2 font-bold text-white hover:bg-rose-600 disabled:bg-gray-400"
+                >
+                  {savingChinese ? '保存中...' : '保存语文配置'}
+                </button>
+              </div>
             </div>
           </div>
         )}

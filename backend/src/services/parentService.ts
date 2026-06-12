@@ -10,6 +10,35 @@ function normalizePaperConfigMode(configData: any) {
   };
 }
 
+type ChinesePracticeItem = {
+  pinyin: string;
+  answer: string;
+};
+
+function normalizeChineseItems(items: any): ChinesePracticeItem[] {
+  const rawItems = Array.isArray(items) ? items : [];
+  const seen = new Set<string>();
+  const normalized: ChinesePracticeItem[] = [];
+
+  for (const item of rawItems) {
+    const pinyin = String(item?.pinyin ?? '').trim();
+    const answer = String(item?.answer ?? '').trim();
+    if (!pinyin || !answer) {
+      throw new AppError('Each Chinese item needs pinyin and answer', 400);
+    }
+
+    const key = `${pinyin.toLowerCase()}=${answer}`;
+    if (seen.has(key)) {
+      throw new AppError(`Duplicate Chinese item: ${pinyin}=${answer}`, 400);
+    }
+
+    seen.add(key);
+    normalized.push({ pinyin, answer });
+  }
+
+  return normalized;
+}
+
 export class ParentService {
   async getChildren(parentId: string) {
     return await prisma.child.findMany({
@@ -602,5 +631,73 @@ export class ParentService {
     }
 
     return child.practiceConfigs[0];
+  }
+
+  async getChineseConfig(childId: string, parentId: string) {
+    const child = await prisma.child.findFirst({
+      where: { id: childId, parentId },
+      include: { chineseConfigs: true }
+    });
+
+    if (!child) {
+      throw new AppError('Child not found', 404);
+    }
+
+    const config = child.chineseConfigs[0];
+    if (!config) {
+      return {
+        childId,
+        isEnabled: false,
+        dailyCount: 10,
+        items: []
+      };
+    }
+
+    return {
+      ...config,
+      items: JSON.parse(config.itemsJson || '[]')
+    };
+  }
+
+  async updateChineseConfig(childId: string, parentId: string, configData: any) {
+    const child = await prisma.child.findFirst({
+      where: { id: childId, parentId },
+      include: { chineseConfigs: true }
+    });
+
+    if (!child) {
+      throw new AppError('Child not found', 404);
+    }
+
+    const existing = child.chineseConfigs[0];
+    const existingItems = existing ? JSON.parse(existing.itemsJson || '[]') : [];
+    const items = Object.prototype.hasOwnProperty.call(configData, 'items')
+      ? normalizeChineseItems(configData.items)
+      : existingItems;
+    const dailyCount = Object.prototype.hasOwnProperty.call(configData, 'dailyCount')
+      ? Math.max(1, Math.min(100, Number(configData.dailyCount || 10)))
+      : existing?.dailyCount ?? 10;
+    const isEnabled = Object.prototype.hasOwnProperty.call(configData, 'isEnabled')
+      ? Boolean(configData.isEnabled) && items.length > 0
+      : existing?.isEnabled ?? false;
+    const data = {
+      isEnabled,
+      dailyCount,
+      itemsJson: JSON.stringify(items)
+    };
+
+    if (existing) {
+      return await prisma.chineseConfig.update({
+        where: { id: existing.id },
+        data
+      });
+    }
+
+    return await prisma.chineseConfig.create({
+      data: {
+        childId,
+        ...data
+      }
+    });
   }
 }

@@ -21,6 +21,10 @@ export const Result: React.FC = () => {
       const response = await api.children.getHistoryDetail(sessionId);
       const data = response.data;
       setResult(data);
+      if (data.subject === 'chinese_pinyin') {
+        setStars(5);
+        return;
+      }
       
       // 计算星星数量（根据正确率）
       const accuracy = data.accuracy || 0;
@@ -44,6 +48,7 @@ export const Result: React.FC = () => {
 
   const getEncouragementText = () => {
     if (!result) return '';
+    if (result.subject === 'chinese_pinyin') return '今天的词语练习完成啦，写字越来越稳了！';
     const accuracy = result.accuracy || 0;
     if (accuracy >= 90) return '太棒了！你简直是数学小天才！';
     if (accuracy >= 80) return '做得很好！继续保持！';
@@ -73,6 +78,8 @@ export const Result: React.FC = () => {
       </div>
     );
   }
+
+  const isChinesePinyin = result.subject === 'chinese_pinyin';
 
   return (
     <div className="kmq-responsive-page relative min-h-screen overflow-hidden bg-cover bg-center flex items-center justify-center px-4" style={{ backgroundImage: 'url(/result-bg.jpg)' }}>
@@ -168,8 +175,18 @@ export const Result: React.FC = () => {
           <div className="grid grid-cols-3 gap-6 mb-12">
             {[
               { label: '用时', value: formatTime(result.totalTime || 0), color: '#889df0', shadow: '#4a5a9a', name: 'history' },
-              { label: '正确率', value: `${(result.accuracy || 0).toFixed(1)}%`, color: '#8ac68a', shadow: '#5a9e1e', name: 'target' },
-              { label: '完成情况', value: `${result.correctCount || 0} / ${result.questionInstances?.length || 0}`, color: '#f7cd67', shadow: '#dfa000', name: 'critterpedia' }
+              isChinesePinyin
+                ? { label: '练习类型', value: '拼音', color: '#8ac68a', shadow: '#5a9e1e', name: 'target' }
+                : { label: '正确率', value: `${(result.accuracy || 0).toFixed(1)}%`, color: '#8ac68a', shadow: '#5a9e1e', name: 'target' },
+              {
+                label: isChinesePinyin ? '完成词语' : '完成情况',
+                value: isChinesePinyin
+                  ? `${result.questionInstances?.length || 0} 个`
+                  : `${result.correctCount || 0} / ${result.questionInstances?.length || 0}`,
+                color: '#f7cd67',
+                shadow: '#dfa000',
+                name: 'critterpedia'
+              }
             ].map((stat, idx) => (
               <Card 
                 key={idx}
@@ -196,14 +213,16 @@ export const Result: React.FC = () => {
             >
               返回主页
             </Button>
-            <Button
-              type="default"
-              onClick={() => navigate('/child/wrong-questions')}
-              className="kmq-compact-button !rounded-[50px] !px-10 !py-6 !text-2xl !bg-[#f0e8d8] !text-[#794f27] !border-white !shadow-[0_8px_0_0_#d4c9b4] flex items-center"
-            >
-              <Icon name="critterpedia" size={24} className="mr-3" />
-              查看错题本
-            </Button>
+            {!isChinesePinyin && (
+              <Button
+                type="default"
+                onClick={() => navigate('/child/wrong-questions')}
+                className="kmq-compact-button !rounded-[50px] !px-10 !py-6 !text-2xl !bg-[#f0e8d8] !text-[#794f27] !border-white !shadow-[0_8px_0_0_#d4c9b4] flex items-center"
+              >
+                <Icon name="critterpedia" size={24} className="mr-3" />
+                查看错题本
+              </Button>
+            )}
           </div>
 
           {/* NPC 鼓励区 - 移到左下角并增大 */}
