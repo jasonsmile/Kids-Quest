@@ -282,7 +282,9 @@ export class ChildService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const config = await prisma.chineseConfig.findUnique({ where: { childId } });
+    const config = await prisma.chineseConfig.findFirst({
+      where: { childId, isActive: true }
+    });
     if (!config || !config.isEnabled) {
       return null;
     }
@@ -384,7 +386,9 @@ export class ChildService {
         return session;
       }
 
-      const config = await prisma.chineseConfig.findUnique({ where: { childId } });
+      const config = await prisma.chineseConfig.findFirst({
+        where: { childId, isActive: true }
+      });
       if (!config || !config.isEnabled) {
         throw new AppError('No active Chinese config found', 400);
       }

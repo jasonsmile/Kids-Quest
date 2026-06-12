@@ -259,6 +259,76 @@ export const getChineseConfig = async (req: Request, res: Response) => {
   }
 };
 
+export const getChineseConfigs = async (req: Request, res: Response) => {
+  try {
+    const parentId = (req as any).user.parentId;
+    const { id } = req.params;
+    const configs = await parentService.getChineseConfigs(id, parentId);
+    res.json({ success: true, data: configs });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: { message: error.message }
+    });
+  }
+};
+
+export const addChineseConfig = async (req: Request, res: Response) => {
+  try {
+    const parentId = (req as any).user.parentId;
+    const { id } = req.params;
+    const config = await parentService.addChineseConfig(id, parentId, req.body);
+    res.status(201).json({ success: true, data: config });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: { message: error.message }
+    });
+  }
+};
+
+export const deleteChineseConfig = async (req: Request, res: Response) => {
+  try {
+    const parentId = (req as any).user.parentId;
+    const { configId } = req.params;
+    await parentService.deleteChineseConfig(configId, parentId);
+    res.json({ success: true, data: null });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: { message: error.message }
+    });
+  }
+};
+
+export const updateChineseConfigById = async (req: Request, res: Response) => {
+  try {
+    const parentId = (req as any).user.parentId;
+    const { configId } = req.params;
+    const config = await parentService.updateChineseConfigById(configId, parentId, req.body);
+    res.json({ success: true, data: config });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: { message: error.message }
+    });
+  }
+};
+
+export const setActiveChineseConfig = async (req: Request, res: Response) => {
+  try {
+    const parentId = (req as any).user.parentId;
+    const { configId } = req.params;
+    const config = await parentService.setActiveChineseConfig(configId, parentId);
+    res.json({ success: true, data: config });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({
+      success: false,
+      error: { message: error.message }
+    });
+  }
+};
+
 export const updateChineseConfig = async (req: Request, res: Response) => {
   try {
     const parentId = (req as any).user.parentId;

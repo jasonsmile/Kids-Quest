@@ -643,7 +643,7 @@ export class ParentService {
       throw new AppError('Child not found', 404);
     }
 
-    const config = child.chineseConfigs[0];
+    const config = child.chineseConfigs.find((item: any) => item.isActive) || child.chineseConfigs[0];
     if (!config) {
       return {
         childId,
@@ -659,6 +659,159 @@ export class ParentService {
     };
   }
 
+  async getChineseConfigs(childId: string, parentId: string) {
+    const child = await prisma.child.findFirst({
+      where: { id: childId, parentId },
+      include: {
+        chineseConfigs: {
+          orderBy: [
+            { isActive: 'desc' },
+            { updatedAt: 'desc' }
+          ]
+        }
+      }
+    });
+
+    if (!child) {
+      throw new AppError('Child not found', 404);
+    }
+
+    return child.chineseConfigs.map((config: any, index: number) => ({
+      ...config,
+      configName: config.configName || `词表${index + 1}`,
+      items: JSON.parse(config.itemsJson || '[]')
+    }));
+  }
+
+  async addChineseConfig(childId: string, parentId: string, configData: any) {
+    const child = await prisma.child.findFirst({
+      where: { id: childId, parentId },
+      include: { chineseConfigs: true }
+    });
+
+    if (!child) {
+      throw new AppError('Child not found', 404);
+    }
+
+    const items = normalizeChineseItems(configData.items);
+    if (items.length === 0) {
+      throw new AppError('Chinese word list needs at least one item', 400);
+    }
+
+    const nextIndex = child.chineseConfigs.length + 1;
+    const hasUsableActive = child.chineseConfigs.some((config: any) => {
+      if (!config.isActive) return false;
+      try {
+        return JSON.parse(config.itemsJson || '[]').length > 0;
+      } catch {
+        return false;
+      }
+    });
+    const isActive = !hasUsableActive;
+
+    return await prisma.$transaction(async (tx) => {
+      if (isActive) {
+        await tx.chineseConfig.updateMany({
+          where: { childId },
+          data: { isActive: false }
+        });
+      }
+
+      return await tx.chineseConfig.create({
+        data: {
+          childId,
+          configName: configData.configName || `词表${nextIndex}`,
+          isEnabled: child.chineseConfigs[0]?.isEnabled ?? false,
+          isActive,
+          dailyCount: child.chineseConfigs[0]?.dailyCount ?? 10,
+          itemsJson: JSON.stringify(items)
+        }
+      });
+    });
+  }
+
+  async deleteChineseConfig(configId: string, parentId: string) {
+    const config = await prisma.chineseConfig.findFirst({
+      where: { id: configId },
+      include: { child: true }
+    });
+
+    if (!config || config.child.parentId !== parentId) {
+      throw new AppError('Chinese config not found', 404);
+    }
+
+    const wasActive = config.isActive;
+    await prisma.chineseConfig.delete({ where: { id: configId } });
+
+    if (wasActive) {
+      const nextConfigs = await prisma.chineseConfig.findMany({
+        where: { childId: config.childId },
+        orderBy: { updatedAt: 'desc' }
+      });
+      const nextConfig = nextConfigs.find((item: any) => {
+        try {
+          return JSON.parse(item.itemsJson || '[]').length > 0;
+        } catch {
+          return false;
+        }
+      }) || nextConfigs[0];
+
+      if (nextConfig) {
+        await prisma.chineseConfig.update({
+          where: { id: nextConfig.id },
+          data: { isActive: true }
+        });
+      }
+    }
+  }
+
+  async updateChineseConfigById(configId: string, parentId: string, configData: any) {
+    const config = await prisma.chineseConfig.findFirst({
+      where: { id: configId },
+      include: { child: true }
+    });
+
+    if (!config || config.child.parentId !== parentId) {
+      throw new AppError('Chinese config not found', 404);
+    }
+
+    const items = normalizeChineseItems(configData.items);
+    if (items.length === 0) {
+      throw new AppError('Chinese word list needs at least one item', 400);
+    }
+
+    return await prisma.chineseConfig.update({
+      where: { id: configId },
+      data: {
+        configName: configData.configName || config.configName,
+        itemsJson: JSON.stringify(items)
+      }
+    });
+  }
+
+  async setActiveChineseConfig(configId: string, parentId: string) {
+    const config = await prisma.chineseConfig.findFirst({
+      where: { id: configId },
+      include: { child: true }
+    });
+
+    if (!config || config.child.parentId !== parentId) {
+      throw new AppError('Chinese config not found', 404);
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      await tx.chineseConfig.updateMany({
+        where: { childId: config.childId },
+        data: { isActive: false }
+      });
+
+      return await tx.chineseConfig.update({
+        where: { id: configId },
+        data: { isActive: true }
+      });
+    });
+  }
+
   async updateChineseConfig(childId: string, parentId: string, configData: any) {
     const child = await prisma.child.findFirst({
       where: { id: childId, parentId },
@@ -669,7 +822,7 @@ export class ParentService {
       throw new AppError('Child not found', 404);
     }
 
-    const existing = child.chineseConfigs[0];
+    const existing = child.chineseConfigs.find((item: any) => item.isActive) || child.chineseConfigs[0];
     const existingItems = existing ? JSON.parse(existing.itemsJson || '[]') : [];
     const items = Object.prototype.hasOwnProperty.call(configData, 'items')
       ? normalizeChineseItems(configData.items)
@@ -696,6 +849,8 @@ export class ParentService {
     return await prisma.chineseConfig.create({
       data: {
         childId,
+        configName: '词表1',
+        isActive: true,
         ...data
       }
     });

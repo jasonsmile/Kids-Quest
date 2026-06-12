@@ -19,6 +19,11 @@ import {
   updatePracticeConfig,
   getPracticeConfig,
   getChineseConfig,
+  getChineseConfigs,
+  addChineseConfig,
+  deleteChineseConfig,
+  updateChineseConfigById,
+  setActiveChineseConfig,
   updateChineseConfig,
   getPracticeSessionDetail,
   getAIChatHistory,
@@ -50,6 +55,11 @@ router.get('/children/:id/practice-config', getPracticeConfig);
 router.put('/children/:id/practice-config', updatePracticeConfig);
 router.get('/children/:id/chinese-config', getChineseConfig);
 router.put('/children/:id/chinese-config', updateChineseConfig);
+router.get('/children/:id/chinese-configs', getChineseConfigs);
+router.post('/children/:id/chinese-configs', addChineseConfig);
+router.put('/children/:id/chinese-configs/:configId', updateChineseConfigById);
+router.delete('/children/:id/chinese-configs/:configId', deleteChineseConfig);
+router.post('/children/:id/chinese-configs/:configId/set-active', setActiveChineseConfig);
 
 // AI Chat Routes
 router.get('/ai/chat/:childId/history', getAIChatHistory);

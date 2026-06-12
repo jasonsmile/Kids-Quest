@@ -64,6 +64,16 @@ type ChineseItem = {
   answer: string;
 };
 
+type ChineseConfig = {
+  id: string;
+  configName: string;
+  isActive: boolean;
+  isEnabled: boolean;
+  dailyCount: number;
+  items: ChineseItem[];
+  updatedAt: string;
+};
+
 const parseChineseText = (text: string) => {
   const lines = text.split(/\r?\n/);
   const items: ChineseItem[] = [];
@@ -191,6 +201,9 @@ export const PaperConfig: React.FC = () => {
   const [chineseEnabled, setChineseEnabled] = useState(false);
   const [chineseDailyCount, setChineseDailyCount] = useState(10);
   const [chineseText, setChineseText] = useState('');
+  const [chineseConfigs, setChineseConfigs] = useState<ChineseConfig[]>([]);
+  const [chineseModalOpen, setChineseModalOpen] = useState(false);
+  const [editingChineseConfig, setEditingChineseConfig] = useState<ChineseConfig | null>(null);
   const [currentPinyinInput, setCurrentPinyinInput] = useState('');
   const [pinyinResult, setPinyinResult] = useState<string[]>([]);
   const [currentTone, setCurrentTone] = useState(1);
@@ -270,11 +283,14 @@ export const PaperConfig: React.FC = () => {
 
   const loadChineseConfig = async (childId: string) => {
     try {
-      const response = await api.parents.getChineseConfig(childId);
-      const config = response.data;
+      const [configResponse, configsResponse] = await Promise.all([
+        api.parents.getChineseConfig(childId),
+        api.parents.getChineseConfigs(childId)
+      ]);
+      const config = configResponse.data;
       setChineseEnabled(Boolean(config?.isEnabled));
       setChineseDailyCount(config?.dailyCount || 10);
-      setChineseText(formatChineseText(config?.items || []));
+      setChineseConfigs(configsResponse.data || []);
     } catch (error) {
       console.error('Failed to load Chinese config:', error);
     }
@@ -294,14 +310,80 @@ export const PaperConfig: React.FC = () => {
 
     try {
       setSavingChinese(true);
-      await api.parents.updateChineseConfig(id, {
-        items: parsed.items,
-      });
-      alert('语文词表配置已保存');
+      if (editingChineseConfig) {
+        await api.parents.updateChineseConfigById(id, editingChineseConfig.id, {
+          configName: editingChineseConfig.configName,
+          items: parsed.items,
+        });
+      } else {
+        await api.parents.addChineseConfig(id, {
+          configName: `词表${chineseConfigs.length + 1}`,
+          items: parsed.items,
+        });
+      }
+      closeChineseModal();
+      await loadChineseConfig(id);
+      alert('词表已保存');
     } catch (error: any) {
       alert(`保存失败：${error.message}`);
     } finally {
       setSavingChinese(false);
+    }
+  };
+
+  const resetChineseDraft = () => {
+    setChineseText('');
+    setCurrentPinyinInput('');
+    setPinyinResult([]);
+    setCurrentAnswer('');
+    setCurrentTone(1);
+  };
+
+  const openCreateChineseModal = () => {
+    setEditingChineseConfig(null);
+    resetChineseDraft();
+    setChineseModalOpen(true);
+  };
+
+  const openEditChineseModal = (config: ChineseConfig) => {
+    setEditingChineseConfig(config);
+    setChineseText(formatChineseText(config.items || []));
+    setCurrentPinyinInput('');
+    setPinyinResult([]);
+    setCurrentAnswer('');
+    setCurrentTone(1);
+    setChineseModalOpen(true);
+  };
+
+  const closeChineseModal = () => {
+    setChineseModalOpen(false);
+    setEditingChineseConfig(null);
+    resetChineseDraft();
+  };
+
+  const setActiveChineseConfig = async (configId: string) => {
+    if (!id) return;
+    if (!confirm('确定使用该词表给孩子练习吗？')) return;
+
+    try {
+      await api.parents.setActiveChineseConfig(id, configId);
+      await loadChineseConfig(id);
+      alert('已切换使用词表');
+    } catch (error: any) {
+      alert(`切换失败：${error.message}`);
+    }
+  };
+
+  const deleteChineseConfig = async (configId: string) => {
+    if (!id) return;
+    if (!confirm('确定删除这个词表吗？')) return;
+
+    try {
+      await api.parents.deleteChineseConfig(id, configId);
+      await loadChineseConfig(id);
+      alert('删除成功');
+    } catch (error: any) {
+      alert(`删除失败：${error.message}`);
     }
   };
 
@@ -660,6 +742,10 @@ export const PaperConfig: React.FC = () => {
   };
 
   const parsedChinese = parseChineseText(chineseText);
+  const sortedChineseConfigs = [...chineseConfigs].sort((a, b) => {
+    if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -1187,15 +1273,38 @@ export const PaperConfig: React.FC = () => {
         )}
         </>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2">
-              <div className="bg-white p-6 rounded-lg shadow [&>div:nth-of-type(2)]:hidden [&>div:nth-of-type(3)]:hidden">
+          <div className="space-y-6">
+            <div className="flex items-center justify-between rounded-lg bg-white p-6 shadow">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">语文词表</h2>
+                <p className="mt-1 text-sm text-gray-500">第一位为孩子当前练习使用的词表。</p>
+              </div>
+              <button
+                type="button"
+                onClick={openCreateChineseModal}
+                className="rounded bg-rose-500 px-5 py-2 font-bold text-white hover:bg-rose-600"
+              >
+                新建词表
+              </button>
+            </div>
+
+            {chineseModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 py-8">
+              <div className="w-full max-w-5xl rounded-lg bg-white p-6 shadow-xl [&>div:nth-of-type(2)]:hidden [&>div:nth-of-type(3)]:hidden">
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-bold text-gray-900">语文词表配置</h2>
-                    <p className="mt-1 text-sm text-gray-500">每行一个词语，格式为“拼音=汉字”。孩子端会显示拼音和田字格。</p>
+                    <h2 className="text-xl font-bold text-gray-900">{editingChineseConfig ? '修改词表' : '新建词表'}</h2>
                   </div>
-                  <span className="rounded-full bg-rose-50 px-3 py-1 text-sm font-bold text-rose-600">看拼音写汉字</span>
+                  <div className="flex items-center gap-3">
+                    <span className="rounded-full bg-rose-50 px-3 py-1 text-sm font-bold text-rose-600">看拼音写汉字</span>
+                    <button
+                      type="button"
+                      onClick={closeChineseModal}
+                      className="rounded border bg-white px-3 py-1 text-sm font-bold text-gray-700 hover:bg-gray-50"
+                    >
+                      关闭
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mb-6">
@@ -1392,6 +1501,34 @@ export const PaperConfig: React.FC = () => {
                   </button>
                 </div>
 
+                <div className="mb-6 rounded-lg border bg-white p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h4 className="font-bold text-gray-800">预览</h4>
+                    <span className="text-sm text-gray-500">{parsedChinese.items.length} 条</span>
+                  </div>
+                  {parsedChinese.items.length === 0 ? (
+                    <p className="py-4 text-center text-sm text-gray-500">添加拼音和汉字后，会在这里预览。</p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                      {parsedChinese.items.map((item, index) => (
+                        <div key={`${item.pinyin}-${item.answer}-${index}`} className="flex items-center justify-between gap-3 rounded border bg-gray-50 px-3 py-2">
+                          <div>
+                            <p className="text-sm text-gray-500">{item.pinyin}</p>
+                            <p className="text-lg font-bold text-gray-900">{item.answer}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeChineseItem(index)}
+                            className="rounded bg-white px-2 py-1 text-sm font-bold text-red-500 hover:bg-red-50"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {parsedChinese.errors.length > 0 && (
                   <div className="mb-6 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
                     {parsedChinese.errors.map((error) => (
@@ -1403,39 +1540,90 @@ export const PaperConfig: React.FC = () => {
                 <button
                   onClick={saveChineseConfig}
                   disabled={savingChinese}
-                  className="hidden rounded bg-rose-500 px-6 py-2 font-bold text-white hover:bg-rose-600 disabled:bg-gray-400"
+                  className="w-full rounded bg-rose-500 px-6 py-2 font-bold text-white hover:bg-rose-600 disabled:bg-gray-400"
                 >
-                  {savingChinese ? '保存中...' : '保存语文配置'}
+                  {savingChinese ? '保存中...' : '保存词表'}
                 </button>
               </div>
             </div>
+            )}
 
-            <div className="lg:col-span-1">
+            <div>
               <div className="bg-white p-6 rounded-lg shadow">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-bold">词表预览</h2>
-                  <span className="text-sm text-gray-500">{parsedChinese.items.length} 条</span>
+                  <h2 className="text-xl font-bold">已保存词表</h2>
+                  <span className="text-sm text-gray-500">{sortedChineseConfigs.length} 个</span>
                 </div>
 
-                {parsedChinese.items.length === 0 ? (
-                  <p className="py-6 text-center text-gray-500">还没有语文词语</p>
+                {sortedChineseConfigs.length === 0 ? (
+                  <p className="py-6 text-center text-gray-500">还没有保存词表</p>
                 ) : (
                   <div className="max-h-[620px] space-y-3 overflow-y-auto">
-                    {parsedChinese.items.map((item, index) => (
-                      <div key={`${item.pinyin}-${item.answer}-${index}`} className="rounded border bg-gray-50 p-3">
+                    {sortedChineseConfigs.map((config, index) => (
+                      <div
+                        key={config.id}
+                        onClick={() => {
+                          if (!config.isActive) {
+                            setActiveChineseConfig(config.id);
+                          }
+                        }}
+                        className={`relative rounded border p-3 transition ${config.isActive ? 'border-green-300 bg-green-50' : 'cursor-pointer bg-gray-50 hover:border-rose-300'}`}
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm text-gray-500">{item.pinyin}</p>
-                            <p className="text-xl font-bold text-gray-900">{item.answer}</p>
+                            <div className="mb-1 flex flex-wrap items-center gap-2">
+                              <p className="text-lg font-bold text-gray-900">词表{index + 1}</p>
+                            </div>
+                            <p className="text-sm text-gray-500">{config.items.length} 个词语</p>
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {config.items.slice(0, 4).map((item, itemIndex) => (
+                                <span key={`${config.id}-${item.pinyin}-${item.answer}-${itemIndex}`} className="rounded bg-white px-2 py-0.5 text-xs text-gray-600">
+                                  {item.answer}
+                                </span>
+                              ))}
+                              {config.items.length > 4 && (
+                                <span className="rounded bg-white px-2 py-0.5 text-xs text-gray-500">+{config.items.length - 4}</span>
+                              )}
+                            </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => removeChineseItem(index)}
-                            className="rounded bg-white px-2 py-1 text-sm font-bold text-red-500 hover:bg-red-50"
-                          >
-                            删除
-                          </button>
+                          <div className="flex shrink-0 flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openEditChineseModal(config);
+                              }}
+                              className="rounded bg-white px-3 py-1 text-sm font-bold text-gray-700 hover:bg-gray-100"
+                            >
+                              修改
+                            </button>
+                            {!config.isActive && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveChineseConfig(config.id);
+                                }}
+                                className="rounded bg-rose-500 px-3 py-1 text-sm font-bold text-white hover:bg-rose-600"
+                              >
+                                使用
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                deleteChineseConfig(config.id);
+                              }}
+                              className="rounded bg-white px-3 py-1 text-sm font-bold text-red-500 hover:bg-red-50"
+                            >
+                              删除
+                            </button>
+                          </div>
                         </div>
+                        {config.isActive && (
+                          <span className="absolute bottom-2 right-3 rounded bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">使用中</span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1443,9 +1631,9 @@ export const PaperConfig: React.FC = () => {
                 <button
                   onClick={saveChineseConfig}
                   disabled={savingChinese}
-                  className="mt-6 w-full rounded bg-rose-500 px-6 py-2 font-bold text-white hover:bg-rose-600 disabled:bg-gray-400"
+                  className="hidden"
                 >
-                  {savingChinese ? '保存中...' : '保存语文配置'}
+                  {savingChinese ? '保存中...' : '保存为新词表'}
                 </button>
               </div>
             </div>

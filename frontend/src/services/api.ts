@@ -170,6 +170,31 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
+    getChineseConfigs: (id: string) =>
+      api.request(`/parents/children/${id}/chinese-configs`),
+
+    addChineseConfig: (id: string, data: any) =>
+      api.request(`/parents/children/${id}/chinese-configs`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    updateChineseConfigById: (id: string, configId: string, data: any) =>
+      api.request(`/parents/children/${id}/chinese-configs/${configId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
+    deleteChineseConfig: (id: string, configId: string) =>
+      api.request(`/parents/children/${id}/chinese-configs/${configId}`, {
+        method: 'DELETE',
+      }),
+
+    setActiveChineseConfig: (id: string, configId: string) =>
+      api.request(`/parents/children/${id}/chinese-configs/${configId}/set-active`, {
+        method: 'POST',
+      }),
+
     getPracticeSessionDetail: (childId: string, sessionId: string) =>
       api.request(`/parents/children/${childId}/practice-sessions/${sessionId}`),
 
